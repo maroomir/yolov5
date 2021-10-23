@@ -29,7 +29,7 @@ from utils.general import apply_classifier, check_img_size, check_imshow, check_
     strip_optimizer, xyxy2xywh
 from utils.plots import Annotator, colors
 from utils.torch_utils import load_classifier, select_device, time_sync
-from utils.comments import CommentWriter, DistanceByObjectHeight
+from utils.comments import CommentWriter, DistanceToObjectWithGPS
 
 
 @torch.no_grad()
@@ -226,7 +226,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
                         # Add the comments
-                        cmt = CommentWriter(DistanceByObjectHeight(xyxy, names[c]))
+                        cmt = CommentWriter(DistanceToObjectWithGPS(xyxy, names[c], conf))
                         label = cmt() if add_comment else None
                         annotator.comment(xyxy, label, colors(c, True))
                         if save_crop:
