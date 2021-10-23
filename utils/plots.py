@@ -77,6 +77,8 @@ class Annotator:
         else:  # use cv2
             self.im = im
         self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
+        self.ih = im.shape[0]
+        self.iw = im.shape[1]
 
     def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
         # Add one xyxy box to image with label
@@ -101,6 +103,20 @@ class Annotator:
                 p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
                 cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
                 cv2.putText(self.im, label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2), 0, self.lw / 3, txt_color,
+                            thickness=tf, lineType=cv2.LINE_AA)
+
+    def comment(self, box, comment_, color=(128, 128, 128)):
+        # Add the comment in the xyxy box
+        if self.pil or not is_ascii(comment_):
+            pass
+        else:  # cv2
+            p = (int(box[0]), int(box[3]))
+            if comment_:
+                tf = max(self.lw - 1, 1)
+                w, h = cv2.getTextSize(comment_, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
+                outside = p[1] + h + 3 < self.ih
+                p = p[0], p[1] + h + 3 if outside else p[1]
+                cv2.putText(self.im, comment_, (p[0], p[1]), 0, self.lw / 3, color,
                             thickness=tf, lineType=cv2.LINE_AA)
 
     def rectangle(self, xy, fill=None, outline=None, width=1):
