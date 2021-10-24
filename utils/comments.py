@@ -15,7 +15,7 @@ class PixelSize:
 class DistanceToObject:
     def __init__(self, box, name,
                  fov=77,  # fov angle of Mavic-2-Pro
-                 full_sz=(5472, 3648),  # full pixel size of Mavic-2-Pro
+                 isz=(1920, 1080),  # image pixel size of Mavic-2-Pro
                  obj_name="person",  # human
                  obj_h_m=1.8  # human height (meter)
                  ):
@@ -24,7 +24,7 @@ class DistanceToObject:
         self.obj_name = obj_name
         fov = math.pi * fov / 180
         # eps = pix_h * 0.5 / tan(fov/2)
-        self.pixh_eps = full_sz[1] / (2 * math.tan(fov / 2))
+        self.pixh_eps = isz[1] / (2 * math.tan(fov / 2))
         self.obj_h = obj_h_m
 
     def comment(self):
@@ -43,7 +43,7 @@ class DistanceToObjectWithGPS:
                  dv_gps=(37.47492775833474, 126.94356693587622),
                  dv_height=8.5,  # the Mavic-2-Pro height of floating
                  fov=77,  # fov angle of Mavic-2-Pro
-                 full_sz=(5472, 3648),  # full pixel size of Mavic-2-Pro
+                 isz=(1920, 1080),  # image pixel size of Mavic-2-Pro
                  obj_name="person",  # human
                  obj_h_m=1.8,  # human height (meter)
                  thresh_conf=0.85,  # inspection ratio
@@ -56,7 +56,7 @@ class DistanceToObjectWithGPS:
         self.dv_height = dv_height
         fov = math.pi * fov / 180
         # eps = pix_h * 0.5 / tan(fov/2)
-        self.pixh_eps = full_sz[1] / (2 * math.tan(fov / 2))
+        self.pixh_eps = isz[1] / (2 * math.tan(fov / 2))
         self.obj_h = obj_h_m
         self.thresh_conf = thresh_conf
 
