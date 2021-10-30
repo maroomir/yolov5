@@ -79,8 +79,13 @@ class Annotator:
         self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
         self.ih = im.shape[0]
         self.iw = im.shape[1]
+        self.box = None
+        self.label = ''
+        self.comment = ''
 
     def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
+        self.box = box
+        self.label = label
         # Add one xyxy box to image with label
         if self.pil or not is_ascii(label):
             self.draw.rectangle(box, width=self.lw, outline=color)  # box
@@ -107,6 +112,7 @@ class Annotator:
 
     def comment(self, box, comment_, color=(128, 128, 128)):
         # Add the comment in the xyxy box
+        self.comment = comment_
         if self.pil or not is_ascii(comment_):
             pass
         else:  # cv2

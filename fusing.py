@@ -272,6 +272,7 @@ def detect(i: int,
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
 
 
+
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolov5s.pt', help='model path(s)')
