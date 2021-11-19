@@ -110,7 +110,7 @@ class Annotator:
                 cv2.putText(self.im, label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2), 0, self.lw / 3, txt_color,
                             thickness=tf, lineType=cv2.LINE_AA)
 
-    def comment(self, box, comment_, color=(128, 128, 128)):
+    def box_comment(self, box, comment_, color=(128, 128, 128)):
         # Add the comment in the xyxy box
         self.comment = comment_
         if self.pil or not is_ascii(comment_):

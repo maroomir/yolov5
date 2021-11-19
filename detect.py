@@ -228,7 +228,7 @@ def run(weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
                         # Add the comments
                         cmt = CommentWriter(RealDistanceToObject(xyxy, names[c], conf))
                         label = cmt() if add_comment else None
-                        annotator.comment(xyxy, label, colors(c, True))
+                        annotator.box_comment(xyxy, label, colors(c, True))
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
