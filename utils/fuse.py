@@ -5,6 +5,7 @@ from threading import Thread
 
 import cv2.cv2
 import numpy
+import torch.cuda
 from numpy import ndarray
 
 from utils.general import xyxy2xywh
@@ -33,7 +34,7 @@ class FusingThread(Thread):
         self.size_offset = size_offset
         self.picks = picks
 
-        super.__init__(target=self.run, args=())
+        super().__init__(target=self.run, args=())
 
     def input_main(self, im: ndarray, xyxy, lbs):
         while self.flags[2]:
@@ -107,13 +108,14 @@ class FusingThread(Thread):
 
 def get_diff(main_img: ndarray, main_box, sub_img: ndarray, sub_box,
              save_diff=True,
-             save_path=ROOT / 'data/theeye'):
+             save_path=ROOT / 'data/theeye/cal_data.json'):
     main_h, main_w, _ = main_img.shape
     sub_h, sub_w, _ = sub_img.shape
-    main_xywh, sub_xywh = xyxy2xywh(main_box).tolist(), xyxy2xywh(sub_box).tolist()
+    main_xywh = xyxy2xywh(torch.tensor(main_box).view(1, 4)).tolist()
+    sub_xywh = xyxy2xywh(torch.tensor(sub_box).view(1, 4)).tolist()
     rw, rh = float(main_w / sub_w), float(main_h / sub_h)
-    sub_xywh = [rw * sub_xywh[0], rh * sub_xywh[1], rw * sub_xywh[2], rh * sub_xywh[3]]
-    dx, dy = int(main_xywh[0] - sub_xywh[0]), int(main_xywh[1] - sub_xywh[1])
+    sub_xywh = [[rw * sub_xywh[0][0], rh * sub_xywh[0][1], rw * sub_xywh[0][2], rh * sub_xywh[0][3]]]
+    dx, dy = int(main_xywh[0][0] - sub_xywh[0][0]), int(main_xywh[0][1] - sub_xywh[0][1])
     res = {"main_h": main_h, "main_w": main_w, "sub_h": sub_h, "sub_w": sub_w,
            "dx": dx, "dy": dy, "rw": rw, "rh": rh}
     if save_diff:

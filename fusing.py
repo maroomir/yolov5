@@ -22,7 +22,7 @@ from utils.torch_utils import select_device, time_sync
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # Convert the relative path
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to system path
@@ -46,8 +46,6 @@ def detect(weights,  # Essential parameter
     device = select_device()
     default_size = [640, 640]
     if not cal_mode:
-        cal_path = increment_path(cal_path)
-        cal_path.mkdir(parents=True, exist_ok=True)
         fuse = FusingThread(str(cal_path))
         fuse.start()
     # Initialize the directory
@@ -160,20 +158,21 @@ def detect(weights,  # Essential parameter
                 ax2.imshow(cv2.cvtColor(res_sub, cv2.COLOR_BGR2RGB))
                 ax2.set_title(str(s_path))
                 matplotlib.pyplot.show()
-            # Update to the fusing
-            if cal_mode:
-                get_diff(main_img=_m_org, main_box=m_xyxy, sub_img=_s_org, sub_box=s_xyxy,
-                         save_path=cal_path)
             else:
-                fuse.input_main(im=_m_org, xyxy=m_xyxy, lbs=m_lbs)
-                fuse.input_sub(im=_s_org, xyxy=s_xyxy, lbs=s_lbs)
-                fuse_boxes = fuse.result()
-                for xyxy in fuse_boxes:
-                    main_annotator.box_label(xyxy, "fuse", color=(255, 0, 255))
-                res = main_annotator.result()
-                if view_img:
-                    cv2.imshow(str(m_path), res)
-                    cv2.waitKey(1)  # 1 ms
+                # Update to the fusing
+                if cal_mode:
+                    get_diff(main_img=_m_org, main_box=m_xyxy[0], sub_img=_s_org, sub_box=s_xyxy[0],
+                             save_path=cal_path)
+                else:
+                    fuse.input_main(im=_m_org, xyxy=m_xyxy, lbs=m_lbs)
+                    fuse.input_sub(im=_s_org, xyxy=s_xyxy, lbs=s_lbs)
+                    fuse_boxes = fuse.result()
+                    for xyxy in fuse_boxes:
+                        main_annotator.box_label(xyxy, "fuse", color=(255, 0, 255))
+                    res = main_annotator.result()
+                    if view_img:
+                        cv2.imshow(str(m_path), res)
+                        cv2.waitKey(1)  # 1 ms
 
 
     # Print results
@@ -186,7 +185,7 @@ def parse_opt():
     parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolov5s.pt', help='model path(s)')
     parser.add_argument('--sources', nargs='+', type=str, default=ROOT / 'data/images', help='file/dir/URL/glob')
     parser.add_argument('--cal-mode', default=False, action='store_true', help='calibration mode')
-    parser.add_argument('--cal-path', type=str, default=ROOT / 'data/theeye', help='calibration file path')
+    parser.add_argument('--cal-path', type=str, default=ROOT / 'data/theeye/cal_data.json', help='calibration file')
     parser.add_argument('--view-img', default=False, action='store_true', help='show results')
     opt = parser.parse_args()
     print_args(FILE.stem, opt)
