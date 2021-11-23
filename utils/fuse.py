@@ -1,20 +1,19 @@
 import json
 import time
 from pathlib import Path
-from threading import Thread
 
 import cv2.cv2
 import numpy
 import torch.cuda
 from numpy import ndarray
 
-from utils.general import xyxy2xywh
+from utils.general import xyxy2xywh, xywh2xyxy
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 
 
-class FusingThread(Thread):
+class Fusing:
     def __init__(self,
                  path: str,
                  dist_offset=10,  # pixel
@@ -25,39 +24,39 @@ class FusingThread(Thread):
             data = json.load(fp)
             types = {"main_h": int, "main_w": int, "sub_h": int, "sub_w": int, "dx": int, "dy": int, "rw": float,
                      "rh": float}
-            self.cam_param = [type(data[key]) for key, _type in types.items()]
-        self.flags = [False, False, False]
+            self.cam_param = [_type(data[key]) for key, _type in types.items()]
         self.main_img, self.main_boxes, self.labels = None, None, None
         self.sub_img, self.sub_boxes = None, None
-        self.result = []
         self.dist_offset = dist_offset
         self.size_offset = size_offset
         self.picks = picks
-
-        super().__init__(target=self.run, args=())
+        self.flag = [False, False]
 
     def input_main(self, im: ndarray, xyxy, lbs):
-        while self.flags[2]:
-            time.sleep(0.001)
-        xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
-        lbs = [lbs] if not isinstance(lbs, list) else lbs
-        self.main_img, self.labels = im, lbs
-        self.main_boxes = [xyxy2xywh(ps) for ps in xyxy]
-        self.flags[0] = True
+        if len(xyxy) > 0 or len(lbs) > 0:
+            xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
+            lbs = [lbs] if not isinstance(lbs, list) else lbs
+            self.main_img, self.labels = im, lbs
+            self.main_boxes = xyxy2xywh(torch.Tensor(xyxy))
+            self.flag[0] = True
 
     def input_sub(self, im: ndarray, xyxy):
-        while self.flags[2]:
-            time.sleep(0.001)
-        xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
-        self.sub_img = im
-        self.main_boxes = [xyxy2xywh(ps) for ps in xyxy]
-        self.flags[1] = True
+        if len(xyxy) > 0:
+            xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
+            self.sub_img = im
+            self.sub_boxes = xyxy2xywh(torch.Tensor(xyxy))
+            self.flag[1] = True
 
-    def run(self):
+    def do(self):
+        if self.flag != [True, True]:
+            return []
+        self.flag = [False, False]
+
         def check_param(src, obj):
             src_h, src_w, _ = src.shape
             obj_h, obj_w, _ = obj.shape
-            if src_h != self.cam_param[0] or src_w != self.cam_param[1] or obj_h != self.cam_param[2] or obj_w != self.cam_param[3]:
+            if src_h != self.cam_param[0] or src_w != self.cam_param[1] or obj_h != self.cam_param[2] or obj_w != \
+                    self.cam_param[3]:
                 org_rw, org_rh = self.cam_param[6], self.cam_param[7]
                 new_rw, new_rh = float(src_w / obj_w), float(src_h / obj_h)
                 org_dx, org_dy = self.cam_param[4], self.cam_param[5]
@@ -75,35 +74,26 @@ class FusingThread(Thread):
             res_h = (obj_h / src_h) if (src_h >= obj_h) else (src_h / obj_h)
             return res_w, res_h
 
-        while True:
-            if self.flags == [True, True, False]:
-                src_im, obj_im = self.main_img, self.sub_img
-                self.cam_param = check_param(src_im, obj_im)
-                for sbbox, lb in zip(self.main_boxes, self.labels):
-                    if not lb in self.picks:
-                        continue
-                    for obbox in self.sub_boxes:
-                        srx, sry, srw, srh = sbbox[0], sbbox[1], sbbox[2], sbbox[3]
-                        obx, oby, obw, obh = bbox_sync(obbox)
-                        dist_x, dist_y = abs(srx - obx), abs(sry - oby)
-                        sim_w, sim_h = similarity(srw, srh, obw, obh)
-                        if (dist_x and dist_y <= self.dist_offset) and (sim_w and sim_h <= self.size_offset):
-                            res_x, res_y = (srx + obx) / 2, (sry + oby) / 2
-                            res_w, res_h = (srw + obw) / 2, (srh + obh) / 2
-                            res_xyxy = xyxy2xywh(numpy.int([res_x, res_y, res_w, res_h]))
-                            self.res_boxes.append(res_xyxy)
-                self.flags = [False, False, True]
-                break
-
-    def result(self):
-        while True:
-            if self.flags == [False, False, True]:
-                res_boxes = self.result.copy()
-                self.main_img, self.main_boxes, self.labels = None, None, None
-                self.sub_img, self.sub_boxes = None, None
-                self.result.clear()
-                self.flags[2] = False
-                return res_boxes
+        self.cam_param = check_param(self.main_img, self.sub_img)
+        res_boxes = []
+        for sbbox, lb in zip(self.main_boxes, self.labels):
+            if not lb in self.picks:
+                continue
+            for obbox in self.sub_boxes:
+                srx, sry, srw, srh = sbbox[0], sbbox[1], sbbox[2], sbbox[3]
+                obx, oby, obw, obh = bbox_sync(obbox)
+                dist_x, dist_y = abs(srx - obx), abs(sry - oby)
+                sim_w, sim_h = similarity(srw, srh, obw, obh)
+                if (dist_x and dist_y <= self.dist_offset) and (sim_w and sim_h <= self.size_offset):
+                    res_x, res_y = (srx + obx) / 2, (sry + oby) / 2
+                    res_w, res_h = (srw + obw) / 2, (srh + obh) / 2
+                    res_xywh = torch.Tensor([res_x, res_y, res_w, res_h])
+                    res_xywh = torch.unsqueeze(res_xywh, dim=0)
+                    res_xyxy = xywh2xyxy(res_xywh).squeeze()
+                    res_boxes.append(res_xyxy.tolist())
+        self.main_img, self.main_boxes, self.labels = None, None, None
+        self.sub_img, self.sub_boxes = None, None
+        return res_boxes
 
 
 def get_diff(main_img: ndarray, main_box, sub_img: ndarray, sub_box,

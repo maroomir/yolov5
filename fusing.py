@@ -16,7 +16,7 @@ from utils.datasets import LoadImages, LoadStreams
 from utils.general import print_args, check_img_size, check_imshow, check_requirements, check_suffix, increment_path, \
     non_max_suppression, scale_coords, set_logging
 from utils.plots import Annotator, colors
-from utils.fuse import FusingThread, get_diff
+from utils.fuse import Fusing, get_diff
 from utils.torch_utils import select_device, time_sync
 
 FILE = Path(__file__).resolve()
@@ -46,8 +46,7 @@ def detect(weights,  # Essential parameter
     device = select_device()
     default_size = [640, 640]
     if not cal_mode:
-        fuse = FusingThread(str(cal_path))
-        fuse.start()
+        fuse = Fusing(str(cal_path))
     # Initialize the directory
     set_logging()
     project = ROOT / 'runs/detect'
@@ -119,6 +118,8 @@ def detect(weights,  # Essential parameter
 
             def write_prediction(annotator: Annotator,
                                  image, origin, detection, names, log):
+                xyxy_boxes = []
+                labels = []
                 if len(detection):
                     # Rescale prediction boundary boxes
                     detection[:, :4] = scale_coords(image.shape[2:], detection[:, :4], origin.shape).round()
@@ -127,8 +128,6 @@ def detect(weights,  # Essential parameter
                         num = (detection[:, -1] == _class).sum()
                         log += f" {num} {names[int(_class)]}{'s' * (num > 1)}, "
                     # Write results
-                    xyxy_boxes = []
-                    labels = []
                     for *xyxy, _conf, _class in reversed(detection):
                         _class = int(_class)
                         xyxy_boxes += [xyxy]
@@ -150,14 +149,10 @@ def detect(weights,  # Essential parameter
             if DEBUG_MODE:
                 res_main = main_annotator.result()
                 res_sub = sub_annotator.result()
-                figure = matplotlib.pyplot.figure()
-                ax1 = figure.add_subplot(1, 2, 1)
-                ax1.imshow(cv2.cvtColor(res_main, cv2.COLOR_BGR2RGB))
-                ax1.set_title(str(m_path))
-                ax2 = figure.add_subplot(1, 2, 2)
-                ax2.imshow(cv2.cvtColor(res_sub, cv2.COLOR_BGR2RGB))
-                ax2.set_title(str(s_path))
-                matplotlib.pyplot.show()
+                cv2.imshow(str(m_path), res_main)
+                cv2.imshow(str(s_path), res_sub)
+                cv2.waitKey(1)  # 1 ms
+                cv2.waitKey(1)
             else:
                 # Update to the fusing
                 if cal_mode:
@@ -165,15 +160,20 @@ def detect(weights,  # Essential parameter
                              save_path=cal_path)
                 else:
                     fuse.input_main(im=_m_org, xyxy=m_xyxy, lbs=m_lbs)
-                    fuse.input_sub(im=_s_org, xyxy=s_xyxy, lbs=s_lbs)
-                    fuse_boxes = fuse.result()
-                    for xyxy in fuse_boxes:
-                        main_annotator.box_label(xyxy, "fuse", color=(255, 0, 255))
-                    res = main_annotator.result()
+                    fuse.input_sub(im=_s_org, xyxy=s_xyxy)
+                    fuse_boxes = fuse.do()
+                    wait_time = 1  # 1ms
+                    if len(fuse_boxes) > 0:
+                        for xyxy in fuse_boxes:
+                            main_annotator.box_label(xyxy, "fusing", color=(0, 0, 0))
+                        wait_time = 1000  # 1s
+                    res_main = main_annotator.result()
+                    res_sub = sub_annotator.result()
                     if view_img:
-                        cv2.imshow(str(m_path), res)
-                        cv2.waitKey(1)  # 1 ms
-
+                        cv2.imshow(str(m_path), res_main)
+                        cv2.imshow(str(s_path), res_sub)
+                        cv2.waitKey(wait_time)  # 1 ms or 1s
+                        cv2.waitKey(wait_time)
 
     # Print results
     speed = tuple(time / num_seen * 1E3 for time in time_laps)  # Speed

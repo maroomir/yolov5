@@ -155,6 +155,9 @@ class _RepeatSampler(object):
             yield from iter(self.sampler)
 
 
+class LoadImagesForFusing:
+    pass
+
 class LoadImages:
     # YOLOv5 image/video dataloader, i.e. `python detect.py --source image.jpg/vid.mp4`
     def __init__(self, path, img_size=640, stride=32, auto=True):
