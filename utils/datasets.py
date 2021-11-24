@@ -155,8 +155,80 @@ class _RepeatSampler(object):
             yield from iter(self.sampler)
 
 
-class LoadImagesForFusing:
-    pass
+class LoadFusingImages:
+    def __init__(self, main_path, sub_path,
+                 main_size=640, sub_size=640,
+                 main_stride=32, sub_stride=32,
+                 auto=True):
+        main_path = str(Path(main_path).resolve())  # os-agnostic absolute path
+        sub_path = str(Path(sub_path).resolve())
+
+        def extract_files(path_):
+            if '*' in path_:
+                files = sorted(glob.glob(path_, recursive=True))  # glob
+            elif os.path.isdir(path_):
+                files = sorted(glob.glob(os.path.join(path_, '*.*')))  # dir
+            elif os.path.isfile(path_):
+                files = [path_]  # files
+            else:
+                raise Exception(f'ERROR: {path_} does not exist')
+            images = [x for x in files if x.split('.')[-1].lower() in IMG_FORMATS]
+            videos = [x for x in files if x.split('.')[-1].lower() in VID_FORMATS]
+            return images, videos
+
+        main_images, main_videos = extract_files(main_path)
+        sub_images, sub_videos = extract_files(sub_path)
+
+        def sync_files(srcs, objs):
+            _num_src, _num_obj = len(srcs), len(objs)
+            num = _num_src if _num_src > _num_obj else _num_obj
+            srcs = [srcs[int(i)] for i in np.arange(0, num, _num_src / num)]
+            objs = [objs[int(i)] for i in np.arange(0, num, _num_obj / num)]
+            return num, srcs, objs
+
+        num_images, main_images, sub_images = sync_files(main_images, sub_images)
+        num_videos, main_videos, sub_videos = sync_files(main_videos, sub_videos)
+
+        self.image_size = {"main": main_size, "sub": sub_size}
+        self.stride = {"main": main_stride, "sub": sub_stride}
+        self.files = {"main": main_images + main_videos, "sub": sub_images + sub_videos}
+        self.num_files = num_images + num_videos
+        self.video_flag = [False] * num_images + [True] * num_videos
+        self.mode = "image"
+        self.auto = auto
+        self.frame_ward = {"main": 0, "sub": 0}
+        self.capture = {"main": None, "sub": None}
+        self.num_frame = {"main": 0, "sub": 0}
+        if any(main_videos):
+            self.__init_video(main_videos[0], flag="main")
+        if any(sub_videos):
+            self.__init_video(sub_videos[0], flag="sub")
+        assert self.num_files > 0, f'No images or videos found in {main_path} or {sub_path}. ' \
+                                   f'Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}'
+
+    def __init_video(self, path, flag):
+        self.frame_ward[flag] = 0
+        self.capture[flag] = cv2.VideoCapture(path)
+        self.num_frame = int(self.capture[flag].get(cv2.CAP_PROP_FRAME_COUNT))
+
+    def __iter__(self):
+        self.count = 0
+        return self
+
+    def __next__(self):
+        if self.count == self.num_files:
+            raise StopIteration
+        path = self.files[self.count]
+
+        if self.video_flag[self.count]:
+            # Read video
+            self.mode = 'video'
+            rate : float
+            res, main_img = self.capture["main"].read()
+            res, sub_img = self.capture["sub"].read()
+            pass
+
+
 
 class LoadImages:
     # YOLOv5 image/video dataloader, i.e. `python detect.py --source image.jpg/vid.mp4`
