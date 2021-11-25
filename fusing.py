@@ -145,7 +145,7 @@ def detect(weights,  # Essential parameter
             sub_annotator, s_log, s_xyxy, s_lbs = \
                 write_prediction(sub_annotator, s_img, _s_org, s_det, names_sub, s_log)
             # Print time
-            print(f"{m_log}Done. ({time3 - time2:.3f}s)")
+            print(f"{m_log}Done. ({time3 - time2:.3f}s)", end='')
             print(f"{s_log}Done. ({time3 - time2:.3f}s)")
             if DEBUG_MODE:
                 res_main = main_annotator.result()
