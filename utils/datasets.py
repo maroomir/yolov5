@@ -178,56 +178,96 @@ class LoadFusingImages:
 
         main_images, main_videos = extract_files(main_path)
         sub_images, sub_videos = extract_files(sub_path)
+        num_images, main_images, sub_images = self.__sync_objects(main_images, sub_images)
+        num_videos, main_videos, sub_videos = self.__sync_objects(main_videos, sub_videos)
 
-        def sync_files(srcs, objs):
-            _num_src, _num_obj = len(srcs), len(objs)
-            num = _num_src if _num_src > _num_obj else _num_obj
-            srcs = [srcs[int(i)] for i in np.arange(0, num, _num_src / num)]
-            objs = [objs[int(i)] for i in np.arange(0, num, _num_obj / num)]
-            return num, srcs, objs
-
-        num_images, main_images, sub_images = sync_files(main_images, sub_images)
-        num_videos, main_videos, sub_videos = sync_files(main_videos, sub_videos)
-
-        self.image_size = {"main": main_size, "sub": sub_size}
-        self.stride = {"main": main_stride, "sub": sub_stride}
-        self.files = {"main": main_images + main_videos, "sub": sub_images + sub_videos}
+        self.image_size = {'main': main_size, 'sub': sub_size}
+        self.stride = {'main': main_stride, 'sub': sub_stride}
+        self.files = {'main': main_images + main_videos, 'sub': sub_images + sub_videos}
         self.num_files = num_images + num_videos
         self.video_flag = [False] * num_images + [True] * num_videos
-        self.mode = "image"
+        self.mode = 'image'
         self.auto = auto
-        self.frame_ward = {"main": 0, "sub": 0}
-        self.capture = {"main": None, "sub": None}
-        self.num_frame = {"main": 0, "sub": 0}
+        self.count = 0
+        assert self.num_files > 0, f"No images or videos found in {main_path} or {sub_path}. " \
+                                   f"Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}"
+        main_frames = list()
+        sub_frames = list()
         if any(main_videos):
-            self.__init_video(main_videos[0], flag="main")
+            main_frames = self.__load_video(main_videos[0])
         if any(sub_videos):
-            self.__init_video(sub_videos[0], flag="sub")
-        assert self.num_files > 0, f'No images or videos found in {main_path} or {sub_path}. ' \
-                                   f'Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}'
+            sub_frames = self.__load_video(sub_videos[0])
+        self.frame = 0
+        self.num_frames, main_frames, sub_frames = self.__sync_objects(main_frames, sub_frames)
+        self.frames = {'main': main_frames, 'sub': sub_frames}
 
-    def __init_video(self, path, flag):
-        self.frame_ward[flag] = 0
-        self.capture[flag] = cv2.VideoCapture(path)
-        self.num_frame = int(self.capture[flag].get(cv2.CAP_PROP_FRAME_COUNT))
+    @staticmethod
+    def __sync_objects(mains: list, subs: list):
+        num_main, num_sub = len(mains), len(subs)
+        max_num = max(num_main, num_sub)
+        if max_num > 0:
+            mains = [mains[int(i)] for i in np.arange(0, max_num, num_main / max_num)]
+            subs = [subs[int(i)] for i in np.arange(0, max_num, num_sub / max_num)]
+        return max_num, mains, subs
+
+    def __load_video(self, path, verbose=True):
+        if verbose:
+            print(f"Video {path} is ready to load")
+        frames = []
+        num_frame = int(cv2.VideoCapture(path).get(cv2.CAP_PROP_FRAME_COUNT))
+        for i in range(num_frame):
+            res, frame = cv2.VideoCapture(path).read()
+            if res:
+                frames.append(frame)
+        cv2.VideoCapture(path).release()
+        if verbose:
+            print(f"Load video completed (total {len(frames)} frames)")
+        return frames
 
     def __iter__(self):
         self.count = 0
         return self
 
+    def __len__(self):
+        return self.num_files
+
     def __next__(self):
         if self.count == self.num_files:
             raise StopIteration
-        path = self.files[self.count]
 
         if self.video_flag[self.count]:
             # Read video
             self.mode = 'video'
-            rate : float
-            res, main_img = self.capture["main"].read()
-            res, sub_img = self.capture["sub"].read()
-            pass
-
+            if self.frame == self.num_frames:
+                self.count += 1
+                if self.count == self.num_files:  # Last file
+                    raise StopIteration
+                else:
+                    main_path, sub_path = self.files['main'][self.count], self.files['sub'][self.count]
+                    mains = self.__load_video(main_path)
+                    subs = self.__load_video(main_path)
+                    self.frame = 0
+                    self.num_frames, self.frames['main'], self.frames['sub'] = self.__sync_objects(mains, subs)
+            main_org, sub_org = self.frames['main'][self.frame], self.frames['sub'][self.frame]
+            self.frame += 1
+            print(f'video {self.count + 1}/{self.num_files} ({self.frame}/{self.frames}) : ', end='')
+        else:
+            # Read image
+            self.count += 1
+            main_path, sub_path = self.files['main'][self.count], self.files['sub'][self.count]
+            main_org, sub_org = cv2.imread(main_path), cv2.imread(sub_path)  # BRG
+            assert main_org is not None, "Image Not Found " + main_path
+            assert sub_org is not None, "Image Not Found " + sub_path
+            print(f'image {self.count}/{self.num_files} : ', end='')
+        # Padded resize
+        main_img = letterbox(main_org, self.image_size['main'], stride=self.stride['main'], auto=self.auto)[0]
+        sub_img = letterbox(sub_org, self.image_size['sub'], stride=self.stride['sub'], auto=self.auto)[0]
+        # Convert
+        main_img = main_img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        main_img = np.ascontiguousarray(main_img)
+        sub_img = sub_img.transpose((2, 0, 1))[::-1]
+        sub_img = np.ascontiguousarray(sub_img)
+        return main_path, main_img, main_org, sub_path, sub_img, sub_org
 
 
 class LoadImages:

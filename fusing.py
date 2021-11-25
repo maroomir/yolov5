@@ -12,7 +12,7 @@ import torch.backends.cudnn
 
 from models.experimental import attempt_load
 from utils.comments import CommentWriter, RealDistanceToObject
-from utils.datasets import LoadImages, LoadStreams
+from utils.datasets import LoadFusingImages
 from utils.general import print_args, check_img_size, check_imshow, check_requirements, check_suffix, increment_path, \
     non_max_suppression, scale_coords, set_logging
 from utils.plots import Annotator, colors
@@ -70,14 +70,15 @@ def detect(weights,  # Essential parameter
     main_size = check_img_size(default_size, s=stride_main)
     sub_size = check_img_size(default_size, s=stride_sub)
     # Load Dataset
-    dataset_main = LoadImages(src_main, img_size=main_size, stride=stride_main, auto=True)
-    dataset_sub = LoadImages(src_sub, img_size=sub_size, stride=stride_sub, auto=True)
+    dataset = LoadFusingImages(main_path=src_main, sub_path=src_sub,
+                               main_size=main_size, sub_size=sub_size,
+                               main_stride=stride_main, sub_stride=stride_sub)
     # Run interface
     if device.type != 'cpu':  # run the once only using CUDA
         model_main(torch.zeros(1, 3, *main_size).to(device).type_as(next(model_main.parameters())))
         model_sub(torch.zeros(1, 3, *sub_size).to(device).type_as(next(model_sub.parameters())))
     time_laps, num_seen = [0.0, 0.0, 0.0], 0
-    for (m_path, m_img, m_org, m_vc), (s_path, s_img, s_org, s_vc) in zip(dataset_main, dataset_sub):
+    for m_path, m_img, m_org, s_path, s_img, s_org in dataset:
         time1 = time_sync()
         m_img = torch.from_numpy(m_img).to(device)
         s_img = torch.from_numpy(s_img).to(device)
@@ -104,8 +105,8 @@ def detect(weights,  # Essential parameter
         # Prediction process
         for (i, m_det), (j, s_det) in zip(enumerate(pred_main), enumerate(pred_sub)):
             num_seen += 1
-            _m_path, m_log, _m_org, m_frame = m_path, '', m_org.copy(), getattr(dataset_main, 'frame', 0)
-            _s_path, s_log, _s_org, s_frame = s_path, '', s_org.copy(), getattr(dataset_sub, 'frame', 0)
+            _m_path, m_log, _m_org = m_path, '', m_org.copy()
+            _s_path, s_log, _s_org = s_path, '', s_org.copy()
             # convert to path
             _m_path = Path(_m_path)
             _s_path = Path(_s_path)
