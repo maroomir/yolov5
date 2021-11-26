@@ -38,15 +38,14 @@ if DEBUG_MODE:
 @torch.no_grad()
 def detect(weights,  # Essential parameter
            sources,  # Essential parameter
-           cal_mode,
            cal_path,
            view_img,
+           save_img,
            ):
     # Initialize the default parameter
     device = select_device()
     default_size = [640, 640]
-    if not cal_mode:
-        fuse = Fusing(str(cal_path))
+    fuse = Fusing(str(cal_path))
     # Initialize the directory
     set_logging()
     project = ROOT / 'runs/detect'
@@ -155,26 +154,25 @@ def detect(weights,  # Essential parameter
                 cv2.waitKey(1)  # 1 ms
                 cv2.waitKey(1)
             else:
-                # Update to the fusing
-                if cal_mode:
-                    get_diff(main_img=_m_org, main_box=m_xyxy[0], sub_img=_s_org, sub_box=s_xyxy[0],
-                             save_path=cal_path)
-                else:
-                    fuse.input_main(im=_m_org, xyxy=m_xyxy, lbs=m_lbs)
-                    fuse.input_sub(im=_s_org, xyxy=s_xyxy)
-                    fuse_boxes = fuse.do()
-                    wait_time = 1  # 1ms
-                    if len(fuse_boxes) > 0:
-                        for xyxy in fuse_boxes:
-                            main_annotator.box_label(xyxy, "fusing", color=(0, 0, 0))
-                        wait_time = 1000  # 1s
-                    res_main = main_annotator.result()
-                    res_sub = sub_annotator.result()
-                    if view_img:
-                        cv2.imshow(str(m_path), res_main)
-                        cv2.imshow(str(s_path), res_sub)
-                        cv2.waitKey(wait_time)  # 1 ms or 1s
-                        cv2.waitKey(wait_time)
+                fuse.input_main(im=_m_org, xyxy=m_xyxy, lbs=m_lbs)
+                fuse.input_sub(im=_s_org, xyxy=s_xyxy)
+                res, _ = fuse.do()
+                """
+                fuse_img, fuse_boxes = fuse.do()
+                wait_time = 1  # 1ms
+                fuse_annotator = Annotator(fuse_img, line_width=3, example=str(names_main))
+                if len(fuse_boxes) > 0:
+                    for xyxy in fuse_boxes:
+                        fuse_annotator.box_label(xyxy, "fusing", color=(0, 0, 0))
+                    wait_time = 2  # 1s
+                res = fuse_annotator.result()
+                """
+                if view_img:
+                    cv2.imshow("Fusing", res)
+                    cv2.waitKey(1)
+                # Save results (image with detections)
+                if save_img:
+                    pass
 
     # Print results
     speed = tuple(time / num_seen * 1E3 for time in time_laps)  # Speed
@@ -185,9 +183,9 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolov5s.pt', help='model path(s)')
     parser.add_argument('--sources', nargs='+', type=str, default=ROOT / 'data/images', help='file/dir/URL/glob')
-    parser.add_argument('--cal-mode', default=False, action='store_true', help='calibration mode')
     parser.add_argument('--cal-path', type=str, default=ROOT / 'data/theeye/cal_data.json', help='calibration file')
     parser.add_argument('--view-img', default=False, action='store_true', help='show results')
+    parser.add_argument('--save-img', default=False, action='store_true', help='show results')
     opt = parser.parse_args()
     print_args(FILE.stem, opt)
     return opt

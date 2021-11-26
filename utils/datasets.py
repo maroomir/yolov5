@@ -156,12 +156,11 @@ class _RepeatSampler(object):
 
 
 class LoadFusingImages:
-    def __init__(self, cal_param: dict,
-                 main_path:str, sub_path:str,
+    def __init__(self,
+                 main_path: str, sub_path: str,
                  main_size=640, sub_size=640,
                  main_stride=32, sub_stride=32,
                  auto=True):
-        self.cal_param = cal_param
         main_path = str(Path(main_path).resolve())  # os-agnostic absolute path
         sub_path = str(Path(sub_path).resolve())
 
@@ -185,6 +184,7 @@ class LoadFusingImages:
                 mains = [mains[int(i)] for i in np.arange(0, max_num, num_main / max_num)]
                 subs = [subs[int(i)] for i in np.arange(0, max_num, num_sub / max_num)]
             return max_num, mains, subs
+
         # Get the processing files in each path
         main_images, main_videos = extract_files(main_path)
         sub_images, sub_videos = extract_files(sub_path)
@@ -229,9 +229,9 @@ class LoadFusingImages:
         mains = [False] * max_num
         subs = [False] * max_num
         for i in range(num_main):
-            mains[int(i * max_num/num_main)] = self.capture_flags['main'][i]
+            mains[int(i * max_num / num_main)] = self.capture_flags['main'][i]
         for i in range(num_sub):
-            subs[int(i * max_num/num_sub)] = self.capture_flags['sub'][i]
+            subs[int(i * max_num / num_sub)] = self.capture_flags['sub'][i]
         self.capture_flags['main'] = mains
         self.capture_flags['sub'] = subs
         self.num_frames = max_num

@@ -8,6 +8,7 @@ import torch.cuda
 from numpy import ndarray
 
 from utils.general import xyxy2xywh, xywh2xyxy
+from utils.augmentations import letterbox
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -16,14 +17,14 @@ ROOT = FILE.parents[0]  # YOLOv5 root directory
 class Fusing:
     def __init__(self,
                  path: str,
-                 dist_offset=10,  # pixel
-                 size_offset=0.9,  # rate
+                 dist_offset=100,  # pixel
+                 size_offset=0.5,  # rate
                  picks=['person']
                  ):
         with open(path, "r") as fp:
             data = json.load(fp)
-            types = {"main_h": int, "main_w": int, "sub_h": int, "sub_w": int, "dx": int, "dy": int, "rw": float,
-                     "rh": float}
+            types = {"main_h": int, "main_w": int, "sub_h": int, "sub_w": int, "cx": int, "cy": int,
+                     "dx": int, "dy": int, "rw": float, "rh": float}
             self.cam_param = [_type(data[key]) for key, _type in types.items()]
         self.main_img, self.main_boxes, self.labels = None, None, None
         self.sub_img, self.sub_boxes = None, None
@@ -49,24 +50,11 @@ class Fusing:
 
     def do(self):
         if self.flag != [True, True]:
-            return []
+            return numpy.ascontiguousarray(self.main_img), []
         self.flag = [False, False]
 
-        def check_param(src, obj):
-            src_h, src_w, _ = src.shape
-            obj_h, obj_w, _ = obj.shape
-            if src_h != self.cam_param[0] or src_w != self.cam_param[1] or obj_h != self.cam_param[2] or obj_w != \
-                    self.cam_param[3]:
-                org_rw, org_rh = self.cam_param[6], self.cam_param[7]
-                new_rw, new_rh = float(src_w / obj_w), float(src_h / obj_h)
-                org_dx, org_dy = self.cam_param[4], self.cam_param[5]
-                new_dx, new_dy = int(new_rw / org_rw * org_dx), int(new_rh / org_rh * org_dy)
-                return [src_h, src_w, obj_h, obj_w, new_dx, new_dy, new_rw, new_rh]
-            else:
-                return self.cam_param
-
         def bbox_sync(obbox: ndarray, cparam=self.cam_param):
-            dx, dy, rw, rh = cparam[4], cparam[5], cparam[6], cparam[7]
+            dx, dy, rw, rh = cparam[6], cparam[7], cparam[8], cparam[9]
             return obbox[0] + dx, obbox[1] + dy, int(obbox[2] * rw), int(obbox[3] * rh)
 
         def similarity(src_w, src_h, obj_w, obj_h):
@@ -74,8 +62,24 @@ class Fusing:
             res_h = (obj_h / src_h) if (src_h >= obj_h) else (src_h / obj_h)
             return res_w, res_h
 
-        self.cam_param = check_param(self.main_img, self.sub_img)
+        def mix_image(src, obj, cparam=self.cam_param, weight=0.5):
+            cx, cy, rw, rh = cparam[4], cparam[5], cparam[8], cparam[9]
+            t_mat = numpy.float32([[1, 0, cx],
+                                   [0, 1, cy]])
+            cp_obj = cv2.resize(obj, None, fx=rw, fy=rh)
+            obj_h, obj_w = cp_obj.shape[0:2]
+            src_h, src_w = src.shape[0:2]
+            dh, dw = src_h - obj_h, src_w - obj_w
+            cp_obj = cv2.warpAffine(cp_obj, t_mat, (obj_w, obj_h))
+            cp_obj = cv2.copyMakeBorder(cp_obj, int(dh/2), int(dh/2), int(dw/2), int(dw/2), cv2.BORDER_CONSTANT,
+                                        value=(0, 0, 0))
+            res = cv2.addWeighted(src, weight, cp_obj, 1 - weight, 0)
+            return res
+
         res_boxes = []
+        res_image = mix_image(self.main_img, self.sub_img)
+        if res_image is None:
+            return numpy.ascontiguousarray(self.main_img), []
         for sbbox, lb in zip(self.main_boxes, self.labels):
             if not lb in self.picks:
                 continue
@@ -91,9 +95,8 @@ class Fusing:
                     res_xywh = torch.unsqueeze(res_xywh, dim=0)
                     res_xyxy = xywh2xyxy(res_xywh).squeeze()
                     res_boxes.append(res_xyxy.tolist())
-        self.main_img, self.main_boxes, self.labels = None, None, None
-        self.sub_img, self.sub_boxes = None, None
-        return res_boxes
+        res_image = numpy.ascontiguousarray(res_image)
+        return res_image, res_boxes
 
 
 def get_diff(main_img: ndarray, main_box, sub_img: ndarray, sub_box,
