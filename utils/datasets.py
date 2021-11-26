@@ -156,10 +156,12 @@ class _RepeatSampler(object):
 
 
 class LoadFusingImages:
-    def __init__(self, main_path, sub_path,
+    def __init__(self, cal_param: dict,
+                 main_path:str, sub_path:str,
                  main_size=640, sub_size=640,
                  main_stride=32, sub_stride=32,
                  auto=True):
+        self.cal_param = cal_param
         main_path = str(Path(main_path).resolve())  # os-agnostic absolute path
         sub_path = str(Path(sub_path).resolve())
 
@@ -240,6 +242,9 @@ class LoadFusingImages:
 
     def __len__(self):
         return self.num_files
+
+    def __mix_image(self, main_img, sub_img, weight=0.7):
+        pass
 
     def __next__(self):
         if self.count == self.num_files:
