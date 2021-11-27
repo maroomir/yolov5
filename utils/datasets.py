@@ -288,7 +288,8 @@ class LoadFusingImages:
         main_img = np.ascontiguousarray(main_img)
         sub_img = sub_img.transpose((2, 0, 1))[::-1]
         sub_img = np.ascontiguousarray(sub_img)
-        return main_path, main_img, self.main_image, sub_path, sub_img, self.sub_image
+        return main_path, main_img, self.main_image, self.captures['main'],\
+               sub_path, sub_img, self.sub_image, self.captures['sub']
 
 
 class LoadImages:

@@ -72,12 +72,13 @@ def detect(weights,  # Essential parameter
     dataset = LoadFusingImages(main_path=src_main, sub_path=src_sub,
                                main_size=main_size, sub_size=sub_size,
                                main_stride=stride_main, sub_stride=stride_sub)
+    video_path, video_writer = {'main': None, 'sub': None, 'fuse': None}, {'main': None, 'sub': None, 'fuse': None}
     # Run interface
     if device.type != 'cpu':  # run the once only using CUDA
         model_main(torch.zeros(1, 3, *main_size).to(device).type_as(next(model_main.parameters())))
         model_sub(torch.zeros(1, 3, *sub_size).to(device).type_as(next(model_sub.parameters())))
     time_laps, num_seen = [0.0, 0.0, 0.0], 0
-    for m_path, m_img, m_org, s_path, s_img, s_org in dataset:
+    for m_path, m_img, m_org, m_cap, s_path, s_img, s_org, s_cap in dataset:
         time1 = time_sync()
         m_img = torch.from_numpy(m_img).to(device)
         s_img = torch.from_numpy(s_img).to(device)
@@ -109,6 +110,9 @@ def detect(weights,  # Essential parameter
             # convert to path
             _m_path = Path(_m_path)
             _s_path = Path(_s_path)
+            save_path_main = str(save_dir / _m_path.name)
+            save_path_sub = str(save_dir / _s_path.name)
+            save_path_fusing = str(save_dir / 'fusing')
             m_log += "%gx%g" % m_img.shape[2:]
             s_log += "%gx%g" % s_img.shape[2:]
             _m_gain = torch.tensor(_m_org.shape)[[1, 0, 1, 0]]  # for normalization
@@ -146,34 +150,70 @@ def detect(weights,  # Essential parameter
             # Print time
             print(f"{m_log}Done. ({time3 - time2:.3f}s)", end='')
             print(f"{s_log}Done. ({time3 - time2:.3f}s)")
+            res_main = main_annotator.result()
+            res_sub = sub_annotator.result()
             if DEBUG_MODE:
-                res_main = main_annotator.result()
-                res_sub = sub_annotator.result()
                 cv2.imshow(str(m_path), res_main)
                 cv2.imshow(str(s_path), res_sub)
                 cv2.waitKey(1)  # 1 ms
                 cv2.waitKey(1)
             else:
-                fuse.input_main(im=_m_org, xyxy=m_xyxy, lbs=m_lbs)
-                fuse.input_sub(im=_s_org, xyxy=s_xyxy)
-                res, _ = fuse.do()
-                """
-                fuse_img, fuse_boxes = fuse.do()
-                wait_time = 1  # 1ms
+                fuse.input_main(im=m_org, xyxy=m_xyxy, lbs=m_lbs)
+                fuse.input_sub(im=s_org, xyxy=s_xyxy, lbs=s_lbs)
+                fuse_img, fuse_boxes, fuse_labels, miss_boxes, miss_labels = fuse.do()
                 fuse_annotator = Annotator(fuse_img, line_width=3, example=str(names_main))
                 if len(fuse_boxes) > 0:
-                    for xyxy in fuse_boxes:
-                        fuse_annotator.box_label(xyxy, "fusing", color=(0, 0, 0))
-                    wait_time = 2  # 1s
-                res = fuse_annotator.result()
-                """
+                    for b in range(len(fuse_boxes)):
+                        fuse_annotator.box_label(fuse_boxes[b], fuse_labels[b], color=(0, 255, 0))
+                        commenter = CommentWriter(RealDistanceToObject(fuse_boxes[b], fuse_labels[b], conf=0.9))
+                        comment = commenter()
+                        fuse_annotator.box_comment(fuse_boxes[b], comment, color=(0, 255, 0))
+                if len(miss_boxes) > 0:
+                    for b in range(len(miss_boxes)):
+                        fuse_annotator.box_label(miss_boxes[b], miss_labels[b], color=(0, 0, 255))
+                        commenter = CommentWriter(RealDistanceToObject(miss_boxes[b], miss_labels[b], conf=0.9))
+                        comment = commenter()
+                        fuse_annotator.box_comment(miss_boxes[b], comment, color=(0, 0, 255))
+                res_fuse = fuse_annotator.result()
                 if view_img:
-                    cv2.imshow("Fusing", res)
+                    cv2.imshow("Fusing", res_fuse)
                     cv2.waitKey(1)
                 # Save results (image with detections)
                 if save_img:
-                    pass
-
+                    if dataset.mode == 'image':
+                        cv2.imwrite(save_path_main, res_main)
+                        cv2.imwrite(save_path_sub, res_sub)
+                        cv2.imwrite(save_path_fusing + ".jpg", res_fuse)
+                    else:  # video or stream
+                        if video_path['main'] != save_path_main:
+                            if isinstance(video_writer['main'], cv2.VideoWriter):
+                                video_writer['main'].release()
+                            video_path['main'] = save_path_main
+                            _m_fps = m_cap.get(cv2.CAP_PROP_FPS)
+                            _m_width = int(m_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            _m_height = int(m_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            video_writer['main'] = cv2.VideoWriter(video_path['main'], cv2.VideoWriter_fourcc(*'mp4v'),
+                                                                   _m_fps, (_m_width, _m_height))
+                        if video_path['sub'] != save_path_sub:
+                            if isinstance(video_writer['sub'], cv2.VideoWriter):
+                                video_writer['sub'].release()
+                            video_path['sub'] = save_path_sub
+                            _s_fps = s_cap.get(cv2.CAP_PROP_FPS)
+                            _s_width = int(s_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            _s_height = int(s_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            video_writer['sub'] = cv2.VideoWriter(video_path['sub'], cv2.VideoWriter_fourcc(*'mp4v'),
+                                                                  _s_fps, (_s_width, _s_height))
+                        if video_path['fuse'] != save_path_fusing:
+                            if isinstance(video_writer['fuse'], cv2.VideoWriter):
+                                video_writer['fuse'].release()
+                            video_path['fuse'] = save_path_fusing
+                            _f_width, _f_height = res_fuse.shape[1], res_fuse.shape[0]
+                            video_writer['fuse'] = cv2.VideoWriter(video_path['fuse'] + ".mp4",
+                                                                   cv2.VideoWriter_fourcc(*'mp4v'),
+                                                                   30, (_f_width, _f_height))
+                        video_writer['main'].write(res_main)
+                        video_writer['sub'].write(res_sub)
+                        video_writer['fuse'].write(res_fuse)
     # Print results
     speed = tuple(time / num_seen * 1E3 for time in time_laps)  # Speed
     print(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *main_size)}" % speed)

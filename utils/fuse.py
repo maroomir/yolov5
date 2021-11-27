@@ -18,7 +18,7 @@ class Fusing:
     def __init__(self,
                  path: str,
                  dist_offset=100,  # pixel
-                 size_offset=0.5,  # rate
+                 size_offset=0.2,  # rate
                  picks=['person']
                  ):
         with open(path, "r") as fp:
@@ -26,8 +26,8 @@ class Fusing:
             types = {"main_h": int, "main_w": int, "sub_h": int, "sub_w": int, "cx": int, "cy": int,
                      "dx": int, "dy": int, "rw": float, "rh": float}
             self.cam_param = [_type(data[key]) for key, _type in types.items()]
-        self.main_img, self.main_boxes, self.labels = None, None, None
-        self.sub_img, self.sub_boxes = None, None
+        self.main_img, self.main_boxes, self.main_lbs = None, None, None
+        self.sub_img, self.sub_boxes, self.sub_lbs = None, None, None
         self.dist_offset = dist_offset
         self.size_offset = size_offset
         self.picks = picks
@@ -37,25 +37,25 @@ class Fusing:
         if len(xyxy) > 0 or len(lbs) > 0:
             xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
             lbs = [lbs] if not isinstance(lbs, list) else lbs
-            self.main_img, self.labels = im, lbs
+            self.main_img, self.main_lbs = im, lbs
             self.main_boxes = xyxy2xywh(torch.Tensor(xyxy))
             self.flag[0] = True
 
-    def input_sub(self, im: ndarray, xyxy):
+    def input_sub(self, im: ndarray, xyxy, lbs):
         if len(xyxy) > 0:
             xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
-            self.sub_img = im
+            self.sub_img, self.sub_lbs = im, lbs
             self.sub_boxes = xyxy2xywh(torch.Tensor(xyxy))
             self.flag[1] = True
 
     def do(self):
         if self.flag != [True, True]:
-            return numpy.ascontiguousarray(self.main_img), []
+            return numpy.ascontiguousarray(self.main_img), [], [], [], []
         self.flag = [False, False]
 
         def bbox_sync(obbox: ndarray, cparam=self.cam_param):
             dx, dy, rw, rh = cparam[6], cparam[7], cparam[8], cparam[9]
-            return obbox[0] + dx, obbox[1] + dy, int(obbox[2] * rw), int(obbox[3] * rh)
+            return (obbox[0] * rw) + dx, (obbox[1] * rh) + dy, int(obbox[2] * rw), int(obbox[3] * rh)
 
         def similarity(src_w, src_h, obj_w, obj_h):
             res_w = (obj_w / src_w) if (src_w >= obj_w) else (src_w / obj_w)
@@ -76,27 +76,43 @@ class Fusing:
             res = cv2.addWeighted(src, weight, cp_obj, 1 - weight, 0)
             return res
 
-        res_boxes = []
+        matches = []
+        match_lbs = []
+        miss = []
+        miss_lbs = []
         res_image = mix_image(self.main_img, self.sub_img)
         if res_image is None:
-            return numpy.ascontiguousarray(self.main_img), []
-        for sbbox, lb in zip(self.main_boxes, self.labels):
-            if not lb in self.picks:
+            return numpy.ascontiguousarray(self.main_img), [], [], [], []
+        for sbbox, main_lb in zip(self.main_boxes, self.main_lbs):
+            if not main_lb in self.picks:
                 continue
-            for obbox in self.sub_boxes:
-                srx, sry, srw, srh = sbbox[0], sbbox[1], sbbox[2], sbbox[3]
+            match = False
+            srx, sry, srw, srh = sbbox[0], sbbox[1], sbbox[2], sbbox[3]
+            for obbox, sub_lb in zip(self.sub_boxes, self.sub_lbs):
                 obx, oby, obw, obh = bbox_sync(obbox)
                 dist_x, dist_y = abs(srx - obx), abs(sry - oby)
                 sim_w, sim_h = similarity(srw, srh, obw, obh)
-                if (dist_x and dist_y <= self.dist_offset) and (sim_w and sim_h <= self.size_offset):
-                    res_x, res_y = (srx + obx) / 2, (sry + oby) / 2
-                    res_w, res_h = (srw + obw) / 2, (srh + obh) / 2
-                    res_xywh = torch.Tensor([res_x, res_y, res_w, res_h])
-                    res_xywh = torch.unsqueeze(res_xywh, dim=0)
-                    res_xyxy = xywh2xyxy(res_xywh).squeeze()
-                    res_boxes.append(res_xyxy.tolist())
+                res_x, res_y = (srx + obx) / 2, (sry + oby) / 2
+                res_w, res_h = (srw + obw) / 2, (srh + obh) / 2
+                res_xywh = torch.Tensor([res_x, res_y, res_w, res_h])
+                res_xywh = torch.unsqueeze(res_xywh, dim=0)
+                res_xyxy = xywh2xyxy(res_xywh).squeeze()
+                if (dist_x <= self.dist_offset) and (dist_y <= self.dist_offset) and\
+                        (sim_w <= self.size_offset) and (sim_h <= self.size_offset):
+                    matches.append(res_xyxy.tolist())
+                    match_lbs.append(main_lb)
+                    match = True
+                else:
+                    miss.append(res_xyxy.tolist())
+                    miss_lbs.append(sub_lb)
+            if not match:
+                src_xywh = torch.Tensor([srx, sry, srw, srh])
+                src_xywh = torch.unsqueeze(src_xywh, dim=0)
+                src_xyxy = xywh2xyxy(src_xywh).squeeze()
+                miss.append(src_xyxy.tolist())
+                miss_lbs.append(main_lb)
         res_image = numpy.ascontiguousarray(res_image)
-        return res_image, res_boxes
+        return res_image, matches, match_lbs, miss, miss_lbs
 
 
 def get_diff(main_img: ndarray, main_box, sub_img: ndarray, sub_box,
