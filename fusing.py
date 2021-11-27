@@ -160,7 +160,7 @@ def detect(weights,  # Essential parameter
             else:
                 fuse.input_main(im=m_org, xyxy=m_xyxy, lbs=m_lbs)
                 fuse.input_sub(im=s_org, xyxy=s_xyxy, lbs=s_lbs)
-                fuse_img, fuse_boxes, fuse_labels, miss_boxes, miss_labels = fuse.do()
+                fuse_img, fuse_boxes, fuse_labels, src_boxes, src_labels, obj_boxes, obj_labels = fuse.do()
                 fuse_annotator = Annotator(fuse_img, line_width=3, example=str(names_main))
                 if len(fuse_boxes) > 0:
                     for b in range(len(fuse_boxes)):
@@ -168,12 +168,18 @@ def detect(weights,  # Essential parameter
                         commenter = CommentWriter(RealDistanceToObject(fuse_boxes[b], fuse_labels[b], conf=0.9))
                         comment = commenter()
                         fuse_annotator.box_comment(fuse_boxes[b], comment, color=(0, 255, 0))
-                if len(miss_boxes) > 0:
-                    for b in range(len(miss_boxes)):
-                        fuse_annotator.box_label(miss_boxes[b], miss_labels[b], color=(0, 0, 255))
-                        commenter = CommentWriter(RealDistanceToObject(miss_boxes[b], miss_labels[b], conf=0.9))
+                if len(src_boxes) > 0:
+                    for b in range(len(src_boxes)):
+                        fuse_annotator.box_label(src_boxes[b], src_labels[b], color=(255, 0, 0))
+                        commenter = CommentWriter(RealDistanceToObject(src_boxes[b], src_labels[b], conf=0.9))
                         comment = commenter()
-                        fuse_annotator.box_comment(miss_boxes[b], comment, color=(0, 0, 255))
+                        fuse_annotator.box_comment(src_boxes[b], comment, color=(255, 0, 0))
+                if len(obj_boxes) > 0:
+                    for b in range(len(obj_boxes)):
+                        fuse_annotator.box_label(obj_boxes[b], obj_labels[b], color=(0, 0, 255))
+                        commenter = CommentWriter(RealDistanceToObject(obj_boxes[b], obj_labels[b], conf=0.9))
+                        comment = commenter()
+                        fuse_annotator.box_comment(obj_boxes[b], comment, color=(0, 0, 255))
                 res_fuse = fuse_annotator.result()
                 if view_img:
                     cv2.imshow("Fusing", res_fuse)

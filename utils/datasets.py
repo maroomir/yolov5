@@ -255,13 +255,16 @@ class LoadFusingImages:
             # Read video
             self.mode = 'video'
             res = True
-            if self.capture_flags['main'][self.frame]:
-                res, self.main_image = self.captures['main'].read()
-            if self.capture_flags['sub'][self.frame]:
-                res, self.sub_image = self.captures['sub'].read()
+            if self.frame == self.num_frames:
+                res = False
+            else:
+                if self.capture_flags['main'][self.frame]:
+                    res, self.main_image = self.captures['main'].read()
+                if self.capture_flags['sub'][self.frame]:
+                    res, self.sub_image = self.captures['sub'].read()
             if not res:
                 self.count += 1
-                if self.count == self.num_files:  # Last file
+                if self.count >= int(self.num_files / 2):  # Last file (Main / Sub)
                     raise StopIteration
                 else:
                     main_path, sub_path = self.files['main'][self.count], self.files['sub'][self.count]
