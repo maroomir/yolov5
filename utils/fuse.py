@@ -2,7 +2,7 @@ import json
 import time
 from pathlib import Path
 
-import cv2.cv2
+import cv2
 import numpy
 import torch.cuda
 from numpy import ndarray
