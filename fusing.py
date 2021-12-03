@@ -4,6 +4,7 @@ import argparse
 import os.path
 import sys
 from pathlib import Path
+from itertools import zip_longest
 
 import numpy
 import torch
@@ -103,7 +104,7 @@ def detect(weights,  # Essential parameter
                                        agnostic=False, max_det=1000)
         time_laps[2] += time_sync() - time3
         # Prediction process
-        for (i, m_det), (j, s_det) in zip(enumerate(pred_main), enumerate(pred_sub)):
+        for (i, m_det), (j, s_det) in zip_longest(enumerate(pred_main), enumerate(pred_sub)):
             num_seen += 1
             _m_path, m_log, _m_org = m_path, '', m_org.copy()
             _s_path, s_log, _s_org = s_path, '', s_org.copy()

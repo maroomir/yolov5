@@ -26,35 +26,30 @@ class Fusing:
             types = {"main_h": int, "main_w": int, "sub_h": int, "sub_w": int,
                      "dx": int, "dy": int, "rw": float, "rh": float}
             self.cam_param = [_type(data[key]) for key, _type in types.items()]
-        self.main_img, self.main_boxes, self.main_lbs = None, None, None
-        self.sub_img, self.sub_boxes, self.sub_lbs = None, None, None
+        self.main_img, self.main_boxes, self.main_lbs = None, [], []
+        self.sub_img, self.sub_boxes, self.sub_lbs = None, [], []
         self.dist_offset = dist_offset
         self.size_offset = size_offset
         self.picks = picks
-        self.flag = [False, False]
 
     def input_main(self, im: ndarray, xyxy, lbs):
         self.main_img = im
+        self.main_boxes, self.main_lbs = [], []
         if len(xyxy) > 0 or len(lbs) > 0:
             xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
             lbs = [lbs] if not isinstance(lbs, list) else lbs
             self.main_lbs = lbs
             self.main_boxes = xyxy2xywh(torch.Tensor(xyxy))
-            self.flag[0] = True
 
     def input_sub(self, im: ndarray, xyxy, lbs):
         self.sub_img = im
+        self.sub_boxes, self.sub_lbs = [], []
         if len(xyxy) > 0:
             xyxy = [xyxy] if not isinstance(xyxy, list) else xyxy
             self.sub_lbs = lbs
             self.sub_boxes = xyxy2xywh(torch.Tensor(xyxy))
-            self.flag[1] = True
 
     def do(self):
-        if self.flag != [True, True]:
-            return numpy.ascontiguousarray(self.main_img), [], [], [], [], [], []
-        self.flag = [False, False]
-
         def bbox_sync(obbox: ndarray, offset, cparam=self.cam_param):
             dx, dy, rw, rh = cparam[4], cparam[5], cparam[6], cparam[7]
             return (obbox[0] * rw) + dx + offset[0], (obbox[1] * rh) + dy + offset[1],\
